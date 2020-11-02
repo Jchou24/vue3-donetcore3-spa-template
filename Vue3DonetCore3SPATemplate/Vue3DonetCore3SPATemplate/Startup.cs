@@ -1,16 +1,19 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SpaServices.ReactDevelopmentServer;
+using Microsoft.AspNetCore.SpaServices;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System;
+using System.IO;
+using VueCliMiddleware;
 
 namespace Vue3DonetCore3SPATemplate
 {
     public class Startup
     {
+        protected readonly string corsPolicy = "CorsPolicy";
+
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
@@ -21,12 +24,24 @@ namespace Vue3DonetCore3SPATemplate
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddControllersWithViews();
+            //services.AddControllersWithViews();
 
-            // In production, the React files will be served from this directory
+            // NOTE: PRODUCTION Ensure this is the same path that is specified in your webpack output
             services.AddSpaStaticFiles(configuration =>
             {
-                configuration.RootPath = "ClientApp/build";
+                configuration.RootPath = "ClientApp/dist";
+            });
+            services.AddControllers();
+
+            // Add service and create Policy with options
+            services.AddCors(options =>
+            {
+                options.AddPolicy(this.corsPolicy,
+                    builder => builder.AllowAnyOrigin()
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    //.AllowCredentials()
+                    );
             });
         }
 
@@ -36,6 +51,7 @@ namespace Vue3DonetCore3SPATemplate
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
+                app.UseCors(corsPolicy);
             }
             else
             {
@@ -45,26 +61,59 @@ namespace Vue3DonetCore3SPATemplate
             }
 
             app.UseHttpsRedirection();
+
+            // Static files
             app.UseStaticFiles();
             app.UseSpaStaticFiles();
 
-            app.UseRouting();
+            // optional base path for IIS virtual app/directory
+            //app.UsePathBase("/optionalpath");
 
+            // Routing
+            app.UseRouting();
+            //app.UserAuthorization();
             app.UseEndpoints(endpoints =>
             {
-                endpoints.MapControllerRoute(
-                    name: "default",
-                    pattern: "{controller}/{action=Index}/{id?}");
+                //endpoints.MapControllerRoute(
+                //    name: "default",
+                //    pattern: "{controller}/{action=Index}/{id?}");
+
+                endpoints.MapControllers();
             });
 
             app.UseSpa(spa =>
             {
                 spa.Options.SourcePath = "ClientApp";
+            });
 
-                if (env.IsDevelopment())
-                {
-                    spa.UseReactDevelopmentServer(npmScript: "start");
-                }
+            var builder = new ConfigurationBuilder()
+                  .SetBasePath(Directory.GetCurrentDirectory())
+                  .AddJsonFile("appsettings.json");
+            var config = builder.Build();
+
+            if (Boolean.Parse(config["IsLaunchSPAServer"]))
+            {
+                UseVueSPAServerWithVisualStudio(app);
+            }
+        }
+
+        /// <summary>
+        /// Launch SPA server with Visual Studio
+        /// </summary>
+        /// <param name="app"></param>
+        protected void UseVueSPAServerWithVisualStudio(IApplicationBuilder app)
+        {
+            app.UseEndpoints(endpoints =>
+            {
+                // use vuecliproxy for dev
+                endpoints.MapToVueCliProxy(
+                    "{*path}",
+                    new SpaOptions { SourcePath = "ClientApp" },
+                    npmScript: (System.Diagnostics.Debugger.IsAttached) ? "serve" : null,
+                    regex: "Compiled successfully",
+                    forceKill: true,
+                    wsl: false // Set to true if you are using WSL on windows. For other operating systems it will be ignored
+                    );
             });
         }
     }
